@@ -26,9 +26,8 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
       
       setDevices(videoDevices);
       
-      // Auto-select logic
+      // Auto-select logic if not already selected
       if (!selectedDeviceId && videoDevices.length > 0) {
-        // Look for typical external camera keywords
         const external = videoDevices.find(d => 
           d.label.toLowerCase().includes('usb') || 
           d.label.toLowerCase().includes('external') ||
@@ -46,7 +45,7 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
   useEffect(() => {
     getDevices();
     
-    // Listen for device changes (plugging in the glasses)
+    // Listen for device changes
     navigator.mediaDevices.addEventListener('devicechange', getDevices);
     return () => {
       navigator.mediaDevices.removeEventListener('devicechange', getDevices);
@@ -58,16 +57,25 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
     return (
       <div className="p-4 bg-red-900/20 border border-red-500/50 rounded text-red-200 text-sm mb-4">
         <i className="fas fa-exclamation-triangle mr-2"></i>
-        Permission required. Check browser site settings.
+        Permission required. Please allow camera access.
       </div>
     );
   }
 
   return (
     <div className="relative mb-6">
-      <label className="block text-xs font-mono text-cyan-400 mb-2 uppercase tracking-widest">
-        Video Input Source
-      </label>
+      <div className="flex justify-between items-center mb-2">
+        <label className="block text-xs font-mono text-cyan-400 uppercase tracking-widest">
+          Video Input Source
+        </label>
+        <button 
+          onClick={getDevices}
+          className="text-[10px] text-cyan-500 hover:text-cyan-400 font-mono uppercase border border-cyan-500/30 px-2 py-1 rounded hover:bg-cyan-900/20 transition-colors"
+        >
+          <i className="fas fa-sync-alt mr-1"></i> Scan
+        </button>
+      </div>
+      
       <div className="relative">
         <select
           value={selectedDeviceId || ''}
@@ -86,7 +94,7 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
       </div>
       <p className="text-[10px] text-slate-500 mt-2">
         <i className="fas fa-info-circle mr-1"></i>
-        If "External/USB Camera" is not listed, re-plug the glasses.
+        If screen is black, try selecting a different camera or re-plug glasses.
       </p>
     </div>
   );

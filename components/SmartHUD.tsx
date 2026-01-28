@@ -12,42 +12,87 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [status, setStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [lastAnalysisTime, setLastAnalysisTime] = useState<string>("--:--");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [streamResolution, setStreamResolution] = useState<string>("-- x --");
 
   // Initialize Camera Stream
   useEffect(() => {
     if (!deviceId) return;
 
+    let currentStream: MediaStream | null = null;
+
     const startStream = async () => {
       setStatus(ConnectionStatus.SCANNING);
+      setErrorMessage(null);
+      
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        // Stop any previous streams to free up the hardware resource
+        if (videoRef.current && videoRef.current.srcObject) {
+           const oldStream = videoRef.current.srcObject as MediaStream;
+           oldStream.getTracks().forEach(track => track.stop());
+        }
+
+        // 1. Constraint Strategy: MINIMAL
+        // We remove 'ideal' width/height to let the UVC driver pick its native default.
+        // This fixes the "Black Screen" on devices that don't support 1080p.
+        const constraints: MediaStreamConstraints = {
           video: {
             deviceId: { exact: deviceId },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            // Optional: You can try to ask for a range if needed, but no constraints is safest for UVC
           }
-        });
+        };
+
+        console.log("Requesting stream with constraints:", constraints);
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        currentStream = stream;
+
+        // Check active tracks
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          const settings = videoTrack.getSettings();
+          setStreamResolution(`${settings.width}x${settings.height}`);
+          console.log("Stream active:", settings);
+        }
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          setStatus(ConnectionStatus.CONNECTED);
+          
+          // 2. Explicit Play: Crucial for Android Chrome
+          try {
+            await videoRef.current.play();
+            setStatus(ConnectionStatus.CONNECTED);
+          } catch (playError) {
+            console.error("Autoplay blocked:", playError);
+            setErrorMessage("Autoplay blocked. Tap screen to start.");
+            setStatus(ConnectionStatus.ERROR);
+          }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Stream start error:", err);
         setStatus(ConnectionStatus.ERROR);
+        
+        // Friendly error mapping
+        if (err.name === 'NotReadableError') {
+          setErrorMessage("Camera is busy. Close other camera apps.");
+        } else if (err.name === 'OverconstrainedError') {
+          setErrorMessage("Resolution not supported by glasses.");
+        } else if (err.name === 'NotAllowedError') {
+          setErrorMessage("Camera permission denied.");
+        } else {
+          setErrorMessage(`Error: ${err.message || err.name}`);
+        }
       }
     };
 
     startStream();
 
     return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
       }
     };
   }, [deviceId]);
@@ -61,8 +106,9 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
     // Draw video frame to canvas
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Ensure canvas matches video size
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
     
     const ctx = canvas.getContext('2d');
     if (ctx) {
@@ -103,6 +149,14 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  const handleRetry = () => {
+     // Force a re-render/re-effect by toggling selection or just calling logic if we extracted it.
+     // Simple way: reload page or parent handles it. 
+     // Here we just clear status to trigger effect if deviceId changed, 
+     // but since deviceId didn't change, we need to manually trigger.
+     window.location.reload(); 
+  };
+
   return (
     <div className="flex flex-col h-full w-full max-w-4xl mx-auto relative group">
       
@@ -125,29 +179,47 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Video Element */}
+        {/* Important: bg-black helps distinguish between loading and broken video */}
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-contain bg-black transition-opacity duration-500 ${status === ConnectionStatus.CONNECTED ? 'opacity-100' : 'opacity-20'}`}
+          className={`w-full h-full object-contain bg-black transition-opacity duration-500 ${status === ConnectionStatus.CONNECTED ? 'opacity-100' : 'opacity-40'}`}
         />
 
+        {/* Error / Status Overlay - CENTERED */}
+        {status === ConnectionStatus.ERROR && (
+           <div className="absolute inset-0 flex flex-col items-center justify-center z-50 bg-black/80 p-4 text-center">
+              <i className="fas fa-exclamation-circle text-4xl text-red-500 mb-2"></i>
+              <h3 className="text-red-400 font-bold mb-1">VIDEO SIGNAL LOST</h3>
+              <p className="text-slate-400 text-sm mb-4">{errorMessage || "Check USB Connection"}</p>
+              <button onClick={handleRetry} className="bg-red-900/50 border border-red-500 text-red-200 px-4 py-2 rounded text-xs uppercase tracking-widest hover:bg-red-800/50">
+                 System Reboot (Reload)
+              </button>
+           </div>
+        )}
+
         {/* Top Bar Overlay */}
-        <div className="absolute top-0 left-0 right-0 p-4 z-30 flex justify-between items-start bg-gradient-to-b from-black/60 to-transparent">
+        <div className="absolute top-0 left-0 right-0 p-4 z-30 flex justify-between items-start bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
           
           {/* Status Indicator */}
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 pointer-events-auto">
             <div className="flex items-center space-x-2 bg-slate-900/80 backdrop-blur px-3 py-1 rounded border border-slate-700">
               <div className={`w-2 h-2 rounded-full ${status === ConnectionStatus.CONNECTED ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
               <span className="text-xs font-mono text-cyan-400 uppercase tracking-wider">{status}</span>
             </div>
+            {status === ConnectionStatus.CONNECTED && (
+                <div className="hidden md:block text-[10px] font-mono text-slate-500 bg-black/50 px-2 py-1 rounded border border-slate-800">
+                    RES: {streamResolution}
+                </div>
+            )}
           </div>
 
           {/* Fullscreen Toggle */}
           <button 
             onClick={toggleFullscreen}
-            className="text-cyan-400 hover:text-white bg-slate-900/50 hover:bg-slate-800 p-2 rounded transition-colors backdrop-blur border border-cyan-500/30"
+            className="pointer-events-auto text-cyan-400 hover:text-white bg-slate-900/50 hover:bg-slate-800 p-2 rounded transition-colors backdrop-blur border border-cyan-500/30"
           >
             <i className={`fas ${isFullscreen ? 'fa-compress' : 'fa-expand'}`}></i>
           </button>
@@ -158,12 +230,15 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
         
         {/* Loading Spinner */}
         {status === ConnectionStatus.SCANNING && (
-          <div className="absolute inset-0 flex items-center justify-center z-30">
-             <div className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+             <div className="flex flex-col items-center">
+               <div className="w-12 h-12 border-4 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin mb-4"></div>
+               <div className="text-cyan-500 text-xs font-mono animate-pulse">ESTABLISHING UPLINK...</div>
+             </div>
           </div>
         )}
 
-        {/* AI Analysis Overlay - Positioned for readability */}
+        {/* AI Analysis Overlay */}
         {(aiResponse || isAnalyzing) && (
           <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-slate-900/90 to-transparent pt-12 pb-6 px-4 z-40 animate-in slide-in-from-bottom-5 fade-in duration-300">
              <div className="max-w-3xl mx-auto">
@@ -191,11 +266,10 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
 
       </div>
 
-      {/* Control Deck - Below Video */}
+      {/* Control Deck */}
       <div className="mt-4 md:mt-6 flex flex-col md:flex-row justify-between items-center gap-4">
          <div className="text-xs text-slate-500 font-mono hidden md:block">
-           <div className="mb-1">RES: 1080p | 60FPS</div>
-           <div>LAT: 12ms</div>
+            {/* Resolution shown here if needed */}
          </div>
 
          <button
@@ -214,7 +288,6 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
              <i className="fas fa-eye mr-2"></i>
              Analyze Scene
            </span>
-           {/* Button Glitch Effect */}
            <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12"></div>
          </button>
       </div>
