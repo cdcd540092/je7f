@@ -1,0 +1,8 @@
+{
+  "name": "Smart Glass UVC Link",
+  "description": "A web interface for USB-C Smart Glasses using WebRTC and Gemini AI for visual analysis.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
