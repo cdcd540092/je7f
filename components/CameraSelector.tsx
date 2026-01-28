@@ -26,10 +26,14 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
       
       setDevices(videoDevices);
       
-      // Auto-select if not selected and devices exist
+      // Auto-select logic
       if (!selectedDeviceId && videoDevices.length > 0) {
-        // Try to find one that looks like an external USB camera first
-        const external = videoDevices.find(d => d.label.toLowerCase().includes('usb') || d.label.toLowerCase().includes('external'));
+        // Look for typical external camera keywords
+        const external = videoDevices.find(d => 
+          d.label.toLowerCase().includes('usb') || 
+          d.label.toLowerCase().includes('external') ||
+          d.label.toLowerCase().includes('uvc')
+        );
         onSelect(external ? external.deviceId : videoDevices[0].deviceId);
       }
 
@@ -54,7 +58,7 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
     return (
       <div className="p-4 bg-red-900/20 border border-red-500/50 rounded text-red-200 text-sm mb-4">
         <i className="fas fa-exclamation-triangle mr-2"></i>
-        Camera permission required to detect Smart Glasses.
+        Permission required. Check browser site settings.
       </div>
     );
   }
@@ -68,7 +72,7 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
         <select
           value={selectedDeviceId || ''}
           onChange={(e) => onSelect(e.target.value)}
-          className="w-full bg-slate-900 border border-slate-700 text-slate-300 py-3 px-4 pr-8 rounded appearance-none focus:outline-none focus:border-cyan-500 font-mono text-sm transition-colors"
+          className="w-full bg-slate-900 border border-slate-700 text-slate-300 py-4 px-4 pr-8 rounded appearance-none focus:outline-none focus:border-cyan-500 font-mono text-sm transition-colors cursor-pointer"
         >
           {devices.map((device) => (
             <option key={device.deviceId} value={device.deviceId}>
@@ -76,13 +80,13 @@ const CameraSelector: React.FC<CameraSelectorProps> = ({ onSelect, selectedDevic
             </option>
           ))}
         </select>
-        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
           <i className="fas fa-chevron-down text-xs"></i>
         </div>
       </div>
       <p className="text-[10px] text-slate-500 mt-2">
         <i className="fas fa-info-circle mr-1"></i>
-        Connect glasses via USB-C. Ensure Android "OTG" is enabled.
+        If "External/USB Camera" is not listed, re-plug the glasses.
       </p>
     </div>
   );

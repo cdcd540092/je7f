@@ -9,11 +9,13 @@ interface SmartHUDProps {
 const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   const [status, setStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
   const [lastAnalysisTime, setLastAnalysisTime] = useState<string>("--:--");
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Initialize Camera Stream
   useEffect(() => {
@@ -43,7 +45,6 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
     startStream();
 
     return () => {
-      // Cleanup stream on unmount or device switch
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => track.stop());
@@ -81,17 +82,45 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
     }
   }, [isAnalyzing]);
 
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => {
+        console.error(`Error enabling fullscreen: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false));
+    }
+  }, []);
+
+  // Listen for fullscreen change via Esc key or system gesture
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   return (
     <div className="flex flex-col h-full w-full max-w-4xl mx-auto relative group">
-      {/* Decorative HUD Borders */}
-      <div className="absolute top-0 left-0 w-8 h-8 border-l-2 border-t-2 border-cyan-500 z-20"></div>
-      <div className="absolute top-0 right-0 w-8 h-8 border-r-2 border-t-2 border-cyan-500 z-20"></div>
-      <div className="absolute bottom-0 left-0 w-8 h-8 border-l-2 border-b-2 border-cyan-500 z-20"></div>
-      <div className="absolute bottom-0 right-0 w-8 h-8 border-r-2 border-b-2 border-cyan-500 z-20"></div>
+      
+      {/* Main Viewport Container */}
+      <div 
+        ref={containerRef}
+        className={`relative w-full aspect-video bg-black overflow-hidden rounded-lg shadow-[0_0_30px_rgba(6,182,212,0.15)] border border-slate-800 group-fullscreen:rounded-none`}
+      >
+        {/* Decorative HUD Borders (Hidden in fullscreen to reduce clutter) */}
+        {!isFullscreen && (
+          <>
+            <div className="absolute top-0 left-0 w-8 h-8 border-l-2 border-t-2 border-cyan-500 z-20"></div>
+            <div className="absolute top-0 right-0 w-8 h-8 border-r-2 border-t-2 border-cyan-500 z-20"></div>
+            <div className="absolute bottom-0 left-0 w-8 h-8 border-l-2 border-b-2 border-cyan-500 z-20"></div>
+            <div className="absolute bottom-0 right-0 w-8 h-8 border-r-2 border-b-2 border-cyan-500 z-20"></div>
+          </>
+        )}
 
-      {/* Main Viewport */}
-      <div className="relative w-full aspect-video bg-black overflow-hidden rounded-lg shadow-[0_0_30px_rgba(6,182,212,0.15)] border border-slate-800">
-        
         {/* Hidden Canvas for Capture */}
         <canvas ref={canvasRef} className="hidden" />
 
@@ -101,20 +130,27 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-cover transition-opacity duration-500 ${status === ConnectionStatus.CONNECTED ? 'opacity-100' : 'opacity-20'}`}
+          className={`w-full h-full object-contain bg-black transition-opacity duration-500 ${status === ConnectionStatus.CONNECTED ? 'opacity-100' : 'opacity-20'}`}
         />
 
-        {/* Status Overlay */}
-        <div className="absolute top-4 left-4 z-10 flex items-center space-x-3">
-          <div className="flex items-center space-x-2 bg-slate-900/80 backdrop-blur px-3 py-1 rounded border border-slate-700">
-            <div className={`w-2 h-2 rounded-full ${status === ConnectionStatus.CONNECTED ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-            <span className="text-xs font-mono text-cyan-400 uppercase tracking-wider">{status}</span>
+        {/* Top Bar Overlay */}
+        <div className="absolute top-0 left-0 right-0 p-4 z-30 flex justify-between items-start bg-gradient-to-b from-black/60 to-transparent">
+          
+          {/* Status Indicator */}
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 bg-slate-900/80 backdrop-blur px-3 py-1 rounded border border-slate-700">
+              <div className={`w-2 h-2 rounded-full ${status === ConnectionStatus.CONNECTED ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <span className="text-xs font-mono text-cyan-400 uppercase tracking-wider">{status}</span>
+            </div>
           </div>
-          {status === ConnectionStatus.CONNECTED && (
-             <div className="text-[10px] font-mono text-slate-400 bg-black/50 px-2 py-1 rounded">
-               UVC LINK ACTIVE
-             </div>
-          )}
+
+          {/* Fullscreen Toggle */}
+          <button 
+            onClick={toggleFullscreen}
+            className="text-cyan-400 hover:text-white bg-slate-900/50 hover:bg-slate-800 p-2 rounded transition-colors backdrop-blur border border-cyan-500/30"
+          >
+            <i className={`fas ${isFullscreen ? 'fa-compress' : 'fa-expand'}`}></i>
+          </button>
         </div>
 
         {/* Grid Overlay (HUD Effect) */}
@@ -127,35 +163,37 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
           </div>
         )}
 
-        {/* AI Analysis Overlay */}
+        {/* AI Analysis Overlay - Positioned for readability */}
         {(aiResponse || isAnalyzing) && (
-          <div className="absolute bottom-4 left-4 right-4 bg-slate-900/90 backdrop-blur-md border border-cyan-500/30 rounded-lg p-4 z-40 animate-in slide-in-from-bottom-5 fade-in duration-300">
-             <div className="flex justify-between items-start mb-2">
-                <h3 className="text-cyan-400 text-xs font-bold font-mono uppercase tracking-widest flex items-center">
-                  <i className="fas fa-microchip mr-2"></i>
-                  Gemini Vision Core
-                </h3>
-                <span className="text-[10px] text-slate-500 font-mono">{lastAnalysisTime}</span>
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-slate-900/90 to-transparent pt-12 pb-6 px-4 z-40 animate-in slide-in-from-bottom-5 fade-in duration-300">
+             <div className="max-w-3xl mx-auto">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-cyan-400 text-xs font-bold font-mono uppercase tracking-widest flex items-center">
+                      <i className="fas fa-microchip mr-2"></i>
+                      Gemini Vision Core
+                    </h3>
+                    <span className="text-[10px] text-slate-500 font-mono">{lastAnalysisTime}</span>
+                </div>
+                
+                {isAnalyzing ? (
+                  <div className="flex items-center space-x-2 text-slate-300 text-sm font-mono">
+                    <span className="inline-block w-2 h-2 bg-cyan-500 animate-ping rounded-full"></span>
+                    <span>Analyzing visual data...</span>
+                  </div>
+                ) : (
+                  <p className="text-slate-200 text-sm leading-relaxed font-light">
+                    {aiResponse}
+                  </p>
+                )}
              </div>
-             
-             {isAnalyzing ? (
-               <div className="flex items-center space-x-2 text-slate-300 text-sm font-mono">
-                 <span className="inline-block w-2 h-2 bg-cyan-500 animate-ping rounded-full"></span>
-                 <span>Analyzing visual data...</span>
-               </div>
-             ) : (
-               <p className="text-slate-200 text-sm leading-relaxed font-light">
-                 {aiResponse}
-               </p>
-             )}
           </div>
         )}
 
       </div>
 
-      {/* Control Deck */}
-      <div className="mt-6 flex justify-between items-center">
-         <div className="text-xs text-slate-500 font-mono">
+      {/* Control Deck - Below Video */}
+      <div className="mt-4 md:mt-6 flex flex-col md:flex-row justify-between items-center gap-4">
+         <div className="text-xs text-slate-500 font-mono hidden md:block">
            <div className="mb-1">RES: 1080p | 60FPS</div>
            <div>LAT: 12ms</div>
          </div>
@@ -164,14 +202,15 @@ const SmartHUD: React.FC<SmartHUDProps> = ({ deviceId }) => {
            onClick={handleCaptureAndAnalyze}
            disabled={status !== ConnectionStatus.CONNECTED || isAnalyzing}
            className={`
-             relative overflow-hidden group px-8 py-3 rounded-md font-bold text-sm tracking-wider uppercase
-             transition-all duration-300
+             w-full md:w-auto
+             relative overflow-hidden group px-8 py-4 md:py-3 rounded-md font-bold text-sm tracking-wider uppercase
+             transition-all duration-300 shadow-lg
              ${status === ConnectionStatus.CONNECTED 
                ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-[0_0_20px_rgba(8,145,178,0.4)] hover:shadow-[0_0_30px_rgba(8,145,178,0.6)]' 
                : 'bg-slate-800 text-slate-500 cursor-not-allowed'}
            `}
          >
-           <span className="relative z-10 flex items-center">
+           <span className="relative z-10 flex items-center justify-center">
              <i className="fas fa-eye mr-2"></i>
              Analyze Scene
            </span>
